@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  # Instancia EC2
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-000478aa2a5df2d49
+      InstanceType: t3a.micro
+      KeyName: vockey
+  # Grupo de escalamento automatico
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: 1
+      MaxSize: 2
+      VPCZones:
+        - vpc-0eecc16c6595f0070
+      LaunchConfigurationName: ReportServer
+      Tags:
+        - Key: Name
+          Value: ReportServer
+
+  # Politica de escalamento de rastreamento de destino
+  TargetTrackingScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: CPUUtilization
+          TargetValue: 70
+
+  # Alarme do CloudWatch
+  Alarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale up instances when CPU utilization is above 70%
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 70
+      AlarmActions:
+        - arn:aws:autoscaling:us-east-1:123456789012:scalingPolicy:autoScalingGroup-policy:12345678-9012-3456-7890-123456789012
+
+  # Load balancer
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Listeners:
+        - LoadBalancerPort: 443
+          InstancePort: 80
+          Protocol: HTTPS
+          SSLCertificateId: !Ref CertificateArn
+
+  # Target group
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: vpc-0eecc16c6595f0070
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      Matcher:
+        HttpCode: 200-299
+
+  # Associacao entre load balancer e target group
+  LoadBalancerTargetGroupAssociation:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupAssociation
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      TargetGroupArn: !Ref TargetGroup
+
+  # Escalabilidade do load balancer
+  ScalingPolicy:
+    Type: AWS::ElasticLoadBalancingV2::ScalingPolicy
+    Properties:
+      ScalingTargetId: !Ref TargetGroup
+      AdjustmentType: ChangeInCapacity
+      MinAdjustmentStep: 1
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: CPUUtilization
+          TargetValue: 70
+
+  # Certificado gerenciado pelo AWS Certificate Manager
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: reports.cloudcost.com
+      DomainValidationOptions:
+        - DomainName: reports.cloudcost.com
+          ValidationDomain: reports.cloudcost.com
+
